@@ -32,7 +32,7 @@ tested Release build byte for byte.
 
 ## Automated tests
 
-CTest completed **6/6 suites**, with **302 checks** total for the unreleased version 1.1.1:
+CTest completed **6/6 suites**, with **302 checks** total for version 1.1.1:
 
 | Suite | Checks | Executed coverage |
 | --- | ---: | --- |
@@ -66,8 +66,8 @@ The columns UI suite passed separately using the installed client's Qt runtime.
 `docs/columns-simulator.png` was captured from its real Qt dock, with seven mocked
 speakers filling three columns. The image was inspected: names, Unicode,
 normal/whisper microphones, elided long names and both whisper badges stay inside
-their own cells. These column changes are part of the unreleased build and have
-not been tested inside the running TeamSpeak client.
+their own cells. These column changes have not been tested inside the running
+TeamSpeak client.
 
 `docs/columns-stacked-simulator.png` was also captured and inspected after choosing
 vertical filling in the real settings dialog: four speakers fill the first

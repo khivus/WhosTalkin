@@ -42,11 +42,7 @@ builds to avoid debug Qt/CRT dependencies.
 
 ## Install and use
 
-Version **1.1.1**, including columns and the five-second removal delay, is currently
-unreleased. Its local installer is `dist/WhosTalkin-1.1.1-win64.ts3_plugin` after
-building/packaging from source. The currently published installer is version 1.1.0:
-
-1. Close TS3 and download [WhosTalkin-1.1.0-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.0/WhosTalkin-1.1.0-win64.ts3_plugin).
+1. Close TS3 and download [WhosTalkin-1.1.1-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.1/WhosTalkin-1.1.1-win64.ts3_plugin).
    Open it with TeamSpeak's package installer, or copy **only**
    `whostalkin_win64.dll` from the release into its plugin folder.
    A normal per-user installation uses `%APPDATA%\TS3Client\plugins`.

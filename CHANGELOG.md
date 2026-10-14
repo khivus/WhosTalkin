@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.1 – 2026-10-14 (unreleased)
+## 1.1.1 – 2026-10-14
 
 - Remember dock dimensions across TeamSpeak restarts: restore side-dock width or
   top/bottom-dock height after the main window layout is ready. Save resizes
