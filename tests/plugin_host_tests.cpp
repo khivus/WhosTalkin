@@ -3,9 +3,14 @@
 #include "teamspeak/public_errors_rare.h"
 #include <QApplication>
 #include <QCoreApplication>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QDockWidget>
 #include <QDir>
 #include <QLibrary>
+#include <QMainWindow>
 #include <QPointer>
+#include <QPushButton>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QWidget>
@@ -30,7 +35,7 @@ bool queriesOnGui = true;
 QString configPath;
 uint64 activeServer = 1;
 using Key = std::pair<uint64, anyID>;
-struct Client { std::string name; int talking = 0; bool whisper = false; bool muted = false; };
+struct Client { std::string name; int talking = 0; bool whisper = false; bool muted = false; std::string uid; };
 std::map<Key, Client> clients;
 void check(bool good, const char* description) {
     ++checks;
@@ -43,8 +48,9 @@ template<typename T> T* memory(std::size_t count) {
 unsigned int release(void* p) { queried(); std::free(p); --allocations; return ERROR_ok; }
 unsigned int clientString(uint64 server, anyID client, std::size_t flag, char** out) {
     queried();
-    if (flag != CLIENT_NICKNAME || !clients.count({server,client})) return ERROR_parameter_invalid;
-    const auto& name = clients.at({server,client}).name;
+    if ((flag != CLIENT_NICKNAME && flag != CLIENT_UNIQUE_IDENTIFIER) || !clients.count({server,client})) return ERROR_parameter_invalid;
+    const auto& person = clients.at({server,client});
+    const auto& name = flag == CLIENT_UNIQUE_IDENTIFIER ? person.uid : person.name;
     *out = memory<char>(name.size() + 1); std::memcpy(*out, name.c_str(), name.size() + 1); return ERROR_ok;
 }
 unsigned int serverString(uint64, std::size_t, char** out) {
@@ -80,9 +86,16 @@ unsigned int log(const char* message, LogLevel, const char*, uint64) { std::cerr
 template<typename F> F resolve(QLibrary& dll, const char* name) {
     const auto result = dll.resolve(name); check(result != nullptr, name); return reinterpret_cast<F>(result);
 }
-void drain() { for (int i = 0; i < 4; ++i) QCoreApplication::processEvents(); }
+void drain() {
+    for (int i = 0; i < 4; ++i) {
+        QCoreApplication::processEvents(); QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    }
+}
 QWidget* window() {
-    for (auto* w : QApplication::topLevelWidgets()) if (w->objectName() == "whostalkinWindow") return w;
+    for (auto* w : QApplication::topLevelWidgets()) {
+        if (w->objectName() == "whostalkinWindow") return w;
+        if (auto* child = w->findChild<QWidget*>("whostalkinWindow")) return child;
+    }
     return nullptr;
 }
 int count() {
@@ -103,6 +116,7 @@ int main(int argc, char** argv) {
     clients[{1,2}] = {u8"同名", 0, false, false};
     clients[{2,1}] = {"Other server", 0, false, false};
     clients[{1,99}] = {"Me", 0, false, false};
+    for (auto& pair : clients) pair.second.uid = "identity-" + std::to_string(pair.first.first) + "-" + std::to_string(pair.first.second);
     TS3Functions f{};
     f.freeMemory = release; f.getClientVariableAsString = clientString; f.getServerVariableAsString = serverString;
     f.getClientVariableAsInt = clientInt; f.getClientID = ownId; f.getServerConnectionHandlerList = handlers;
@@ -124,17 +138,28 @@ int main(int argc, char** argv) {
     const auto connection = resolve<void(*)(uint64,int,unsigned int)>(dll, "ts3plugin_onConnectStatusChangeEvent");
     const auto update = resolve<void(*)(uint64,anyID,anyID,const char*,const char*)>(dll, "ts3plugin_onUpdateClientEvent");
     const auto move = resolve<void(*)(uint64,anyID,uint64,uint64,int,const char*)>(dll, "ts3plugin_onClientMoveEvent");
+    const auto configure = resolve<void(*)(void*,void*)>(dll, "ts3plugin_configure");
     check(version() == 26, "plugin API 26");
     pointers(f); check(init() == 0, "native DLL initialization"); drain();
     check(count() == 0, "no permanent channel list");
     PluginMenuItem** items = nullptr; char* icon = reinterpret_cast<char*>(1); menus(&items, &icon);
-    check(items && items[0] && items[1] && items[2] && !items[3] && !icon, "SDK menu memory and icon contract");
+    check(items && items[0] && items[6] && !items[7] && !icon, "SDK global/client menu memory and icon contract");
+    check(items[4]->type == PLUGIN_MENU_TYPE_CLIENT && items[4]->id == 101 && items[5]->id == 102 && items[6]->id == 103,
+          "native client include/exclude/reset menu definitions");
     for (int i = 0; items[i]; ++i) freePlugin(items[i]); freePlugin(items);
     std::thread audio([&] { talk(1,STATUS_TALKING,0,1); talk(1,STATUS_TALKING,1,2); }); audio.join();
     check(count() == 0, "worker callbacks enqueue without touching GUI"); drain();
     check(count() == 2, "simultaneous normal and incoming whisper with duplicate names");
     auto* canvas = window()->findChild<QWidget*>("speakerCanvas");
     check(canvas->property("whisperCount").toInt() == 1, "whisper boolean displayed without guessed target");
+    menu(1,PLUGIN_MENU_TYPE_CLIENT,102,1); drain();
+    check(count() == 1, "SDK client context menu excludes one duplicate-named person");
+    menu(1,PLUGIN_MENU_TYPE_CLIENT,101,1); drain();
+    check(count() == 2, "SDK client include action restores current activity");
+    menu(1,PLUGIN_MENU_TYPE_CLIENT,103,1); drain();
+    check(count() == 2, "SDK client reset action clears the identity rule");
+    menu(1,PLUGIN_MENU_TYPE_CLIENT,102,65536); menu(1,PLUGIN_MENU_TYPE_CLIENT,102,0); drain();
+    check(count() == 2, "invalid SDK selected client IDs are ignored");
     talk(1,STATUS_TALKING,1,1); drain();
     check(count() == 2 && canvas->property("whisperCount").toInt() == 2, "normal to whisper replaces same identity");
     talk(1,STATUS_NOT_TALKING,0,2); drain(); check(count() == 1, "whisper stop removes immediately");
@@ -153,6 +178,27 @@ int main(int argc, char** argv) {
     talk(1,STATUS_TALKING_WHILE_DISABLED,0,99); drain(); check(count() == 0, "disabled own microphone never shown");
     check(command(1,"hide") == 0, "hide command handled"); drain(); check(!window()->isVisible(), "hide command applied");
     command(1,"show"); drain(); check(window()->isVisible(), "show command applied");
+    menu(1,PLUGIN_MENU_TYPE_CLIENT,102,1); talk(1,1,0,1); drain();
+    check(count() == 0, "native excluded person remains hidden on later talk callbacks");
+    menu(1,PLUGIN_MENU_TYPE_GLOBAL,4,0); drain();
+    QPointer<QWidget> trackedPeople;
+    for (auto* w : QApplication::topLevelWidgets()) if (w->objectName() == "whostalkinPeopleFilters") trackedPeople = w;
+    check(trackedPeople && trackedPeople->isVisible(), "SDK global menu opens people filters");
+    trackedPeople->findChild<QComboBox*>("peopleFilterMode")->setCurrentIndex(1);
+    menu(1,PLUGIN_MENU_TYPE_CLIENT,101,2); talk(1,1,0,2); drain();
+    check(count() == 1, "native include-only mode shows a selected included person");
+    talk(1,0,0,2); drain(); check(count() == 0, "native included person disappears when silent");
+    QMainWindow clientMain, otherMain;
+    clientMain.setCentralWidget(new QWidget); otherMain.setCentralWidget(new QWidget);
+    configure(nullptr, clientMain.centralWidget()); drain();
+    QWidget* configuration = nullptr;
+    for (auto* w : QApplication::topLevelWidgets()) if (w->objectName() == "whostalkinSettings") configuration = w;
+    check(configuration, "official configure callback opened settings");
+    configuration->findChild<QComboBox*>("displayMode")->setCurrentIndex(1);
+    configuration->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Save)->click(); drain();
+    QPointer<QDockWidget> trackedDock = clientMain.findChild<QDockWidget*>("WhosTalkinDock");
+    check(trackedDock && trackedDock->widget() == window() && !otherMain.findChild<QDockWidget*>("WhosTalkinDock"),
+          "configure parent resolves correct native mock main window without changing another host");
     menu(1,PLUGIN_MENU_TYPE_GLOBAL,2,0); drain();
     QPointer<QWidget> trackedWindow = window();
     QPointer<QWidget> trackedDialog;
@@ -160,7 +206,8 @@ int main(int argc, char** argv) {
     check(trackedDialog && trackedDialog->isVisible(), "native plugin settings menu");
     // Queue more plugin code, then destroy its receiver without draining it.
     talk(1,1,0,2); command(1,"toggle"); shutdown();
-    check(!trackedWindow && !trackedDialog, "shutdown destroys visible GUI and cancels queued callbacks");
+    check(!trackedWindow && !trackedDialog && !trackedDock && !trackedPeople && clientMain.centralWidget(),
+          "shutdown destroys dock, filter manager, visible GUI and queued callbacks while retaining host");
     check(allocations == 0 && queriesOnGui, "SDK allocations freed and every SDK lookup ran on GUI thread");
     check(dll.unload(), "DLL actually unloaded"); drain();
     check(dll.load(), "DLL reload"); pointers = resolve<void(*)(TS3Functions)>(dll, "ts3plugin_setFunctionPointers");
@@ -171,6 +218,7 @@ int main(int argc, char** argv) {
     std::thread lifecycleInit([&] { initResult = reinit(); initialized = true; });
     while (!initialized.load()) { QCoreApplication::processEvents(); QThread::msleep(1); }
     lifecycleInit.join(); check(initResult == 0, "worker-thread re-enable without client restart");
+    check(count() == 0, "persistent include/exclude rules survive actual DLL reload");
     QPointer<QWidget> reloadedWindow = window();
     std::atomic<bool> stopped{false};
     std::thread lifecycleShutdown([&] { reshutdown(); stopped = true; });

@@ -18,10 +18,15 @@ public:
     void setSpeakers(const std::vector<Speaker>& speakers, std::size_t total);
     void showPassive();
     void ensureOnScreen();
+    void setEmbedded(bool embedded);
+    bool embedded() const { return embedded_; }
     std::function<void()> onSettings;
+    std::function<void()> onPeopleFilters;
+    std::function<void(SpeakerKey, const QPoint&)> onPersonMenu;
     std::function<void()> onHidden;
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
 private:
     int chromeHeight() const;
@@ -35,5 +40,6 @@ private:
     QVBoxLayout* layout_;
     QPoint dragOffset_;
     bool dragging_ = false;
+    bool embedded_ = false;
 };
 }

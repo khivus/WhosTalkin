@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 – 2026-10-14
+
+- Add included/excluded people and an optional include-only display mode.
+  Saved rules match public TeamSpeak identities and survive reconnects; missing
+  identities use connection-only rules that are cleared on disconnect.
+- Add Include, Exclude and Remove Filter actions to the native TeamSpeak client
+  context menu and the speaker window's row context menu.
+- Add a People Filters manager to edit or remove rules for quiet/hidden people,
+  available through Plugins, settings, the window context menu and `/whostalkin filters`.
+- Add an experimental docked view inside a compatible Qt main window. It uses
+  public Qt APIs, keeps an independent-window fallback, preserves floating
+  geometry and restores only this plugin's dock area.
+- Add tests for identity reuse, persistent rules, real context actions, dock
+  ownership, host destruction, presentation switching and DLL unload/reload.
+- Extend the simulator with person filter controls and a mock dock host.
+
 ## 1.0.1 – 2026-10-14
 
 - Set the plugin and installer author to Khivus.

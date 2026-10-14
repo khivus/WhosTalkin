@@ -4,11 +4,13 @@
 #include <QApplication>
 #include <QDir>
 #include <QMetaObject>
+#include <QPointer>
 #include <QStandardPaths>
 #include <QThread>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <mutex>
 
 #ifdef _WIN32
@@ -21,7 +23,8 @@ namespace {
 TS3Functions functions{};
 std::mutex dispatchMutex;
 wt::Controller* controller = nullptr;
-enum Menu { Toggle = 1, Settings = 2, ResetPosition = 3 };
+enum Menu { Toggle = 1, Settings = 2, ResetPosition = 3, PeopleFilters = 4,
+            IncludePerson = 101, ExcludePerson = 102, ClearPerson = 103 };
 
 // The lock protects ONLY receiver lifetime and enqueue order. SDK calls and widget
 // work are performed later by the GUI thread. There is no lock held while executing.
@@ -34,6 +37,13 @@ void dispatch(std::function<void(wt::Controller&)> action) {
 }
 void event(wt::Event value) {
     dispatch([value = std::move(value)](wt::Controller& c) { c.handle(value); });
+}
+void dispatchUi(std::function<void(wt::Controller&)> action) {
+    if (qApp && QThread::currentThread() == qApp->thread()) {
+        wt::Controller* receiver;
+        { std::lock_guard<std::mutex> lock(dispatchMutex); receiver = controller; }
+        if (receiver) action(*receiver);
+    } else dispatch(std::move(action));
 }
 void simple(wt::EventType type, uint64 server, anyID client = 0) {
     wt::Event e; e.type = type; e.key = {server, client}; event(std::move(e));
@@ -102,35 +112,62 @@ TS_EXPORT void ts3plugin_shutdown() {
     // queued functors synchronously BEFORE the client releases this DLL.
     onGuiSync([removed] { delete removed; });
 }
-TS_EXPORT void ts3plugin_configure(void*, void*) { dispatch([](wt::Controller& c) { c.openSettings(); }); }
+TS_EXPORT void ts3plugin_configure(void*, void* parent) {
+    // The SDK requests this callback on the Qt GUI thread. Retain only a weak
+    // reference to its official parent until the queued operation runs.
+    QPointer<QWidget> widget = static_cast<QWidget*>(parent);
+    dispatch([widget](wt::Controller& c) { c.setHostParent(widget); c.openSettings(); });
+}
 TS_EXPORT int ts3plugin_processCommand(uint64, const char* command) {
     const QString text = QString::fromUtf8(command ? command : "").trimmed().toLower();
     if (text == "show") dispatch([](wt::Controller& c) { c.show(); });
     else if (text == "hide") dispatch([](wt::Controller& c) { c.hide(); });
     else if (text.isEmpty() || text == "toggle") dispatch([](wt::Controller& c) { c.toggle(); });
     else if (text == "settings") dispatch([](wt::Controller& c) { c.openSettings(); });
+    else if (text == "filters") dispatch([](wt::Controller& c) { c.openPeopleFilters(); });
     else if (text == "reset") dispatch([](wt::Controller& c) { c.resetPosition(); });
     else return 1;
     return 0;
 }
 TS_EXPORT void ts3plugin_initMenus(PluginMenuItem*** menus, char** icon) {
     *icon = nullptr;
-    *menus = static_cast<PluginMenuItem**>(std::calloc(4, sizeof(PluginMenuItem*)));
+    struct MenuDefinition { PluginMenuType type; int id; const char* text; };
+    const MenuDefinition definitions[] = {
+        {PLUGIN_MENU_TYPE_GLOBAL, Toggle, "Show / hide Active Speakers"},
+        {PLUGIN_MENU_TYPE_GLOBAL, Settings, "Settings"},
+        {PLUGIN_MENU_TYPE_GLOBAL, ResetPosition, "Reset window position"},
+        {PLUGIN_MENU_TYPE_GLOBAL, PeopleFilters, "People filters"},
+        {PLUGIN_MENU_TYPE_CLIENT, IncludePerson, "Include in Active Speakers"},
+        {PLUGIN_MENU_TYPE_CLIENT, ExcludePerson, "Exclude from Active Speakers"},
+        {PLUGIN_MENU_TYPE_CLIENT, ClearPerson, "Remove Active Speakers filter"}
+    };
+    const auto count = sizeof(definitions) / sizeof(definitions[0]);
+    *menus = static_cast<PluginMenuItem**>(std::calloc(count + 1, sizeof(PluginMenuItem*)));
     if (!*menus) return;
-    const char* names[] = {"Show / hide Active Speakers", "Settings", "Reset window position"};
-    for (int i = 0; i < 3; ++i) {
+    for (std::size_t i = 0; i < count; ++i) {
         auto* item = allocate<PluginMenuItem>();
         if (!item) break; // null-terminated, client frees each item via ts3plugin_freeMemory.
-        item->type = PLUGIN_MENU_TYPE_GLOBAL; item->id = i + 1;
-        std::memcpy(item->text, names[i], std::strlen(names[i]) + 1);
+        item->type = definitions[i].type; item->id = definitions[i].id;
+        std::memcpy(item->text, definitions[i].text, std::strlen(definitions[i].text) + 1);
         (*menus)[i] = item;
     }
 }
-TS_EXPORT void ts3plugin_onMenuItemEvent(uint64, PluginMenuType type, int id, uint64) {
+TS_EXPORT void ts3plugin_onMenuItemEvent(uint64 server, PluginMenuType type, int id, uint64 selected) {
+    if (type == PLUGIN_MENU_TYPE_CLIENT) {
+        if (!selected || selected > std::numeric_limits<anyID>::max()) return;
+        if (id != IncludePerson && id != ExcludePerson && id != ClearPerson) return;
+        const auto operation = id == IncludePerson ? wt::FilterAction::Include
+            : (id == ExcludePerson ? wt::FilterAction::Exclude : wt::FilterAction::Clear);
+        dispatchUi([server, selected, operation](wt::Controller& c) {
+            c.filterPerson({server, static_cast<anyID>(selected)}, operation);
+        });
+        return;
+    }
     if (type != PLUGIN_MENU_TYPE_GLOBAL) return;
     if (id == Toggle) dispatch([](wt::Controller& c) { c.toggle(); });
     else if (id == Settings) dispatch([](wt::Controller& c) { c.openSettings(); });
     else if (id == ResetPosition) dispatch([](wt::Controller& c) { c.resetPosition(); });
+    else if (id == PeopleFilters) dispatch([](wt::Controller& c) { c.openPeopleFilters(); });
 }
 TS_EXPORT void ts3plugin_initHotkeys(PluginHotkey*** hotkeys) {
     *hotkeys = static_cast<PluginHotkey**>(std::calloc(2, sizeof(PluginHotkey*)));

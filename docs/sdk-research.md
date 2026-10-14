@@ -46,3 +46,20 @@ The template uses Qt 5.15.2 with a v140 setting and the MSVC2019 Qt package. Thi
 project uses the package's MSVC-compatible v142 toolchain, C++17, and shared Qt.
 The built DLL was verified in a Qt host with the official SDK ABI; real TS3
 audio-session testing remains a separate step.
+
+## Person filters and docking in 1.1.0
+
+`PLUGIN_MENU_TYPE_CLIENT` registers native client context actions, and
+`onMenuItemEvent` supplies the selected client ID together with its server handler.
+`getClientVariableAsString(..., CLIENT_UNIQUE_IDENTIFIER, ...)` obtains the public
+client identity for persistent filtering. Live speaker tracking continues to use
+the required server/client key; nicknames are only display labels.
+
+The public function table does not provide a dock registration API or a main
+window getter. Qt does provide public `QMainWindow::addDockWidget` and `QDockWidget`
+ownership APIs. The optional implementation uses the SDK Configure parent when
+compatible, otherwise one unambiguous top-level Qt `QMainWindow`. Runtime type
+checks and weak pointers retain an independent-window fallback. No private
+client widget names or layouts are used. This is a best-effort Qt integration,
+not a claim of an SDK-guaranteed extension point. Tests exercise mock main-window
+ownership using the real Qt runtime; live TS3 docking remains unverified.

@@ -1,10 +1,12 @@
 #include "speaker_window.h"
 #include <QApplication>
 #include <QCloseEvent>
+#include <QContextMenuEvent>
 #include <QFontMetrics>
 #include <QGuiApplication>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScreen>
@@ -19,6 +21,7 @@ class SpeakerCanvas : public QWidget {
 public:
     std::vector<Speaker> speakers;
     Settings settings;
+    std::function<void(SpeakerKey, const QPoint&)> onContext;
     int rowHeight() const { return qRound(32 * settings.scale / 100.0); }
     explicit SpeakerCanvas(QWidget* parent) : QWidget(parent) {
         setObjectName("speakerCanvas");
@@ -34,6 +37,14 @@ public:
         update();
     }
 protected:
+    void contextMenuEvent(QContextMenuEvent* event) override {
+        const int row = event->pos().y() < 0 ? -1 : event->pos().y() / rowHeight();
+        if (row >= 0 && row < static_cast<int>(speakers.size()) && onContext) {
+            const auto key = speakers[static_cast<std::size_t>(row)].key;
+            onContext(key, event->globalPos());
+            event->accept();
+        } else event->ignore();
+    }
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
@@ -132,6 +143,10 @@ SpeakerWindow::SpeakerWindow() : QWidget(nullptr) {
     scroll_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
     scroll_->setMinimumHeight(0);
     canvas_ = new SpeakerCanvas(scroll_);
+    canvas_->setToolTip("Right-click a speaker to include or exclude this person.");
+    canvas_->onContext = [this](SpeakerKey key, const QPoint& point) {
+        if (onPersonMenu) onPersonMenu(key, point);
+    };
     scroll_->setWidget(canvas_);
     layout_->addWidget(scroll_, 1);
     grip_ = new QSizeGrip(this);
@@ -149,11 +164,11 @@ void SpeakerWindow::applySettings(const Settings& settings) {
     settings_.normalize();
     const qreal scale = settings_.scale / 100.0;
     const qreal resizeRatio = static_cast<qreal>(settings_.scale) / previousScale;
-    Qt::WindowFlags flags = settings_.hideTaskbar ? Qt::Tool : Qt::Window;
-    if (settings_.alwaysOnTop) flags |= Qt::WindowStaysOnTopHint;
-    if (settings_.frameless) flags |= Qt::FramelessWindowHint;
+    Qt::WindowFlags flags = embedded_ ? Qt::Widget : (settings_.hideTaskbar ? Qt::Tool : Qt::Window);
+    if (!embedded_ && settings_.alwaysOnTop) flags |= Qt::WindowStaysOnTopHint;
+    if (!embedded_ && settings_.frameless) flags |= Qt::FramelessWindowHint;
     if (flags != windowFlags()) setWindowFlags(flags);
-    setWindowOpacity(settings_.opacity / 100.0);
+    if (!embedded_) setWindowOpacity(settings_.opacity / 100.0);
     QFont f = QApplication::font();
     f.setPointSizeF(9.0 * scale);
     setFont(f);
@@ -162,6 +177,7 @@ void SpeakerWindow::applySettings(const Settings& settings) {
     titleLayout->setContentsMargins(qRound(8 * scale), 0, qRound(4 * scale), 0);
     titleLayout->setSpacing(qRound(6 * scale));
     grip_->setFixedSize(qRound(12 * scale), qRound(10 * scale));
+    grip_->setVisible(!embedded_);
     const QString bg = settings_.darkTheme ? "#20242d" : "#f4f5f8";
     const QString fg = settings_.darkTheme ? "#edf0f5" : "#202733";
     const QString hover = settings_.darkTheme ? "#363d4c" : "#dce1e9";
@@ -186,13 +202,15 @@ void SpeakerWindow::applySettings(const Settings& settings) {
     const auto margins = layout_->contentsMargins();
     setMinimumWidth(std::max(qRound(220 * scale), titleLayout->minimumSize().width() + margins.left() + margins.right()));
     setMinimumHeight(chromeHeight());
-    setMaximumHeight(std::max(minimumHeight(), settings_.maxHeight));
+    setMaximumHeight(embedded_ ? QWIDGETSIZE_MAX : std::max(minimumHeight(), settings_.maxHeight));
     canvas_->settings = settings_;
     canvas_->refresh();
-    resize(qRound(sizeBefore.width() * resizeRatio), qRound(sizeBefore.height() * resizeRatio));
-    move(position);
+    if (!embedded_) {
+        resize(qRound(sizeBefore.width() * resizeRatio), qRound(sizeBefore.height() * resizeRatio));
+        move(position);
+    }
     adjustListHeight();
-    if (visible) showPassive();
+    if (visible) { if (embedded_) show(); else showPassive(); }
 }
 void SpeakerWindow::setSpeakers(const std::vector<Speaker>& speakers, std::size_t total) {
     canvas_->speakers = speakers;
@@ -202,12 +220,12 @@ void SpeakerWindow::setSpeakers(const std::vector<Speaker>& speakers, std::size_
 }
 int SpeakerWindow::chromeHeight() const {
     const auto margins = layout_->contentsMargins();
-    return margins.top() + titleBar_->height() + grip_->height() + margins.bottom();
+    return margins.top() + titleBar_->height() + (embedded_ ? 0 : grip_->height()) + margins.bottom();
 }
 void SpeakerWindow::adjustListHeight() {
-    scroll_->setVisible(!canvas_->speakers.empty());
+    scroll_->setVisible(embedded_ || !canvas_->speakers.empty());
     layout_->activate();
-    if (!settings_.autoHeight) return;
+    if (embedded_ || !settings_.autoHeight) return;
     int cap = maximumHeight();
     if (auto* screen = QGuiApplication::screenAt(frameGeometry().center()))
         cap = std::min(cap, screen->availableGeometry().height() - 60);
@@ -216,11 +234,28 @@ void SpeakerWindow::adjustListHeight() {
 }
 void SpeakerWindow::showPassive() { ensureOnScreen(); show(); }
 void SpeakerWindow::ensureOnScreen() {
+    if (embedded_) return;
     for (auto* screen : QGuiApplication::screens()) {
         if (screen->availableGeometry().intersects(QRect(frameGeometry().topLeft(), QSize(width(), 30)))) return;
     }
     if (auto* screen = QGuiApplication::primaryScreen())
         move(screen->availableGeometry().topLeft() + QPoint(40, 60));
+}
+void SpeakerWindow::setEmbedded(bool embedded) {
+    embedded_ = embedded;
+    applySettings(settings_);
+}
+void SpeakerWindow::contextMenuEvent(QContextMenuEvent* event) {
+    auto* menu = new QMenu(this);
+    menu->setObjectName("speakerWindowMenu");
+    connect(menu->addAction("People filters..."), &QAction::triggered, this, [this] {
+        if (onPeopleFilters) onPeopleFilters();
+    });
+    connect(menu->addAction("Settings..."), &QAction::triggered, this, [this] {
+        if (onSettings) onSettings();
+    });
+    connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+    menu->popup(event->globalPos());
 }
 void SpeakerWindow::closeEvent(QCloseEvent* event) {
     event->ignore();
@@ -228,7 +263,7 @@ void SpeakerWindow::closeEvent(QCloseEvent* event) {
     if (onHidden) onHidden();
 }
 bool SpeakerWindow::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == titleBar_ || watched == title_) {
+    if (!embedded_ && (watched == titleBar_ || watched == title_)) {
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouse = static_cast<QMouseEvent*>(event);
             if (mouse->button() == Qt::LeftButton) {

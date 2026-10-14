@@ -4,47 +4,55 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDockWidget>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QMainWindow>
+#include <QPushButton>
 #include <QScreen>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QVBoxLayout>
 #include <algorithm>
 
 namespace wt {
 Controller::Controller(std::unique_ptr<EventSource> source, const QString& path)
-    : source_(std::move(source)), settingsFile_(path), settings_(settingsFile_.load()),
-      window_(std::make_unique<SpeakerWindow>()) {
+    : source_(std::move(source)), settingsFile_(path), settings_(settingsFile_.load()) {
     clock_.start();
     expiry_.setSingleShot(true);
     expiry_.setTimerType(Qt::PreciseTimer);
     connect(&expiry_, &QTimer::timeout, this, [this] {
         store_.expire(clock_.elapsed()); render(); armExpiry();
     });
-    window_->onSettings = [this] { openSettings(); };
-    window_->onHidden = [this] { saveGeometry(); };
-    window_->applySettings(settings_);
-    const auto geometry = settingsFile_.geometry();
-    if (!geometry.isEmpty()) window_->restoreGeometry(geometry);
-    window_->ensureOnScreen();
+    filter_.configure(settings_.includeOnly, settings_.people);
+    floatingGeometry_ = settingsFile_.geometry();
+    floatingSize_ = settingsFile_.geometrySize();
+    floatingScale_ = settingsFile_.geometryScale();
+    ensureWindow();
 }
 Controller::~Controller() {
+    shuttingDown_ = true;
     expiry_.stop();
     if (dialog_) delete dialog_.data();
+    if (peopleDialog_) delete peopleDialog_.data();
     saveGeometry();
-    window_->onSettings = {}; window_->onHidden = {};
-    window_.reset();
+    if (dock_) {
+        if (host_) host_->removeDockWidget(dock_);
+        delete dock_.data(); // Also deletes the embedded speaker widget.
+    }
+    delete window_.data(); // QPointer is null if the host already deleted it.
     store_.clear();
 }
 void Controller::initialize() {
     activeServer_ = source_->activeServer();
     seed(); render();
+    updatePresentation();
     if (settings_.startVisible) show();
 }
 void Controller::seed(std::optional<std::uint64_t> server) {
     for (const auto& s : source_->snapshot(server))
-        store_.start(s.key, s.nickname, s.serverName, s.kind, s.own);
+        store_.start(s.key, s.nickname, s.serverName, s.kind, s.own, s.uniqueId);
 }
 void Controller::handle(const Event& event) {
     switch (event.type) {
@@ -54,14 +62,17 @@ void Controller::handle(const Event& event) {
             if (info.suppressed) { store_.remove(event.key); break; }
             const auto kind = event.incomingWhisper ? SpeechKind::IncomingWhisper
                 : (info.own && info.outgoingWhisper ? SpeechKind::OutgoingWhisper : SpeechKind::Normal);
-            store_.start(event.key, info.nickname, info.serverName, kind, info.own);
+            store_.start(event.key, info.nickname, info.serverName, kind, info.own, info.uniqueId);
+            if (filter_.rename(info.uniqueId, info.nickname)) persistFilters();
         } else {
             // Muted local speech and disconnects must never linger, even with a delay enabled.
             store_.stop(event.key, clock_.elapsed(), event.talkStatus == 0 ? settings_.removalDelay : 0);
         }
         break;
-    case EventType::RemoveClient: store_.remove(event.key); break;
-    case EventType::ClearServer: store_.removeServer(event.key.server); break;
+    case EventType::RemoveClient:
+        store_.remove(event.key); filter_.removeClient(event.key); refreshPeopleDialog(); break;
+    case EventType::ClearServer:
+        store_.removeServer(event.key.server); filter_.removeServer(event.key.server); refreshPeopleDialog(); break;
     case EventType::ClientMoved: {
         const auto info = source_->client(event.key);
         if (info.own) {
@@ -82,18 +93,27 @@ void Controller::handle(const Event& event) {
         for (const auto key : keys) {
             const auto info = source_->client(key);
             if (info.suppressed || (info.talking && !*info.talking)) store_.remove(key);
-            else store_.rename(key, info.nickname);
+            else {
+                store_.rename(key, info.nickname);
+                if (filter_.rename(info.uniqueId, info.nickname)) persistFilters();
+            }
         }
         break;
     }
     case EventType::Rename: store_.rename(event.key, event.nickname); break;
     case EventType::ActiveServer: activeServer_ = event.key.server; break;
-    case EventType::Connected: store_.removeServer(event.key.server); seed(event.key.server); break;
+    case EventType::Connected:
+        store_.removeServer(event.key.server); filter_.removeServer(event.key.server);
+        seed(event.key.server); refreshPeopleDialog(); break;
     }
     render(); armExpiry();
 }
 void Controller::render() {
+    ensureWindow();
     auto speakers = store_.visible(activeServer_, settings_.allServers, settings_.showOwn);
+    speakers.erase(std::remove_if(speakers.begin(), speakers.end(), [this](const Speaker& s) {
+        return !filter_.allows(s);
+    }), speakers.end());
     if (settings_.alphabetical) {
         QCollator collator;
         collator.setCaseSensitivity(Qt::CaseInsensitive);
@@ -115,21 +135,14 @@ void Controller::armExpiry() {
     if (!next) { expiry_.stop(); return; }
     expiry_.start(static_cast<int>(std::clamp<std::int64_t>(*next - clock_.elapsed(), 1, 301)));
 }
-void Controller::show() { render(); window_->showPassive(); }
-void Controller::hide() { saveGeometry(); window_->hide(); }
-void Controller::toggle() { if (window_->isVisible()) hide(); else show(); }
-void Controller::saveGeometry() {
-    if (!window_) return;
-    settingsFile_.saveGeometry(window_->saveGeometry());
-    if (!settingsFile_.sync()) source_->log("Could not save WhosTalkin settings; check config directory permissions.");
-}
-void Controller::resetPosition() { window_->move(-32000, -32000); window_->ensureOnScreen(); show(); }
 void Controller::applySettings(Settings settings) {
     settings.normalize(); settings_ = settings;
+    filter_.configure(settings_.includeOnly, settings_.people);
     settingsFile_.save(settings_);
     if (settings_.removalDelay == 0) store_.expire(INT64_MAX);
-    window_->applySettings(settings_);
-    render(); armExpiry(); saveGeometry();
+    ensureWindow(); window_->applySettings(settings_);
+    updatePresentation();
+    render(); armExpiry(); saveGeometry(); refreshPeopleDialog();
 }
 void Controller::openSettings() {
     if (dialog_) { dialog_->show(); dialog_->raise(); dialog_->activateWindow(); return; }
@@ -141,6 +154,10 @@ void Controller::openSettings() {
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setAttribute(Qt::WA_QuitOnClose, false);
     auto* layout = new QVBoxLayout(dialog);
+    auto* tabs = new QTabWidget(dialog);
+    layout->addWidget(tabs);
+    auto* windowPage = new QWidget(tabs);
+    auto* windowLayout = new QVBoxLayout(windowPage);
     auto* windowGroup = new QGroupBox("Window", dialog);
     auto* windowForm = new QFormLayout(windowGroup);
     auto checkbox = [dialog](QFormLayout* form, const QString& text, bool value) {
@@ -150,6 +167,14 @@ void Controller::openSettings() {
         auto* box = new QSpinBox(dialog); box->setRange(min, max); box->setValue(value);
         box->setSuffix(suffix); form->addRow(label, box); return box;
     };
+    auto* display = new QComboBox(dialog);
+    display->setObjectName("displayMode");
+    display->addItems({"Independent floating window", "Dock in TeamSpeak window (experimental)"});
+    display->setCurrentIndex(settings_.integrate ? 1 : 0);
+    windowForm->addRow("Display", display);
+    auto* hostNote = new QLabel("Docking uses a compatible Qt main window when available. Otherwise the floating window remains available.", dialog);
+    hostNote->setWordWrap(true);
+    windowForm->addRow(hostNote);
     auto* top = checkbox(windowForm, "Always on top", settings_.alwaysOnTop);
     auto* start = checkbox(windowForm, "Open when plugin starts", settings_.startVisible);
     auto* taskbar = checkbox(windowForm, "Hide from taskbar", settings_.hideTaskbar);
@@ -159,7 +184,11 @@ void Controller::openSettings() {
     auto* opacity = spin(windowForm, "Opacity", settings_.opacity, 20, 100, "%");
     auto* scale = spin(windowForm, "Scale", settings_.scale, 75, 200, "%");
     auto* height = spin(windowForm, "Maximum height", settings_.maxHeight, 120, 1600, " px");
-    layout->addWidget(windowGroup);
+    windowLayout->addWidget(windowGroup);
+    windowLayout->addStretch();
+    tabs->addTab(windowPage, "Window");
+    auto* speakerPage = new QWidget(tabs);
+    auto* speakerLayout = new QVBoxLayout(speakerPage);
     auto* speakersGroup = new QGroupBox("Speakers", dialog);
     auto* form = new QFormLayout(speakersGroup);
     auto* activeOnly = checkbox(form, "Only currently speaking users", true);
@@ -174,18 +203,31 @@ void Controller::openSettings() {
     order->addItems({"Speaking start time", "Alphabetical"});
     order->setCurrentIndex(settings_.alphabetical ? 1 : 0);
     form->addRow("Order", order);
-    layout->addWidget(speakersGroup);
+    auto* filters = new QPushButton("People filters...", dialog);
+    filters->setObjectName("peopleFiltersButton");
+    form->addRow(filters);
+    connect(filters, &QPushButton::clicked, this, [this] { openPeopleFilters(); });
+    speakerLayout->addWidget(speakersGroup);
     auto* behavior = new QGroupBox("Behavior", dialog);
     auto* behaviorForm = new QFormLayout(behavior);
     auto* servers = checkbox(behaviorForm, "All connected servers (available audio events only)", settings_.allServers);
     auto* delay = spin(behaviorForm, "Removal delay", settings_.removalDelay, 0, 300, " ms");
     delay->setToolTip("0 removes immediately. A nonzero delay intentionally holds a stopped row briefly.");
-    layout->addWidget(behavior);
+    speakerLayout->addWidget(behavior);
+    speakerLayout->addStretch();
+    tabs->addTab(speakerPage, "Speakers");
+    auto enableFloating = [=](int mode) {
+        for (auto* widget : std::vector<QWidget*>{top, taskbar, frameless, autoHeight, opacity, height})
+            widget->setEnabled(mode == 0);
+    };
+    connect(display, QOverload<int>::of(&QComboBox::currentIndexChanged), dialog, enableFloating);
+    enableFloating(display->currentIndex());
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     connect(buttons, &QDialogButtonBox::accepted, this, [=] {
         auto s = settings_;
+        s.integrate = display->currentIndex() == 1;
         s.alwaysOnTop = top->isChecked(); s.startVisible = start->isChecked();
         s.hideTaskbar = taskbar->isChecked(); s.frameless = frameless->isChecked();
         s.darkTheme = dark->isChecked(); s.autoHeight = autoHeight->isChecked();

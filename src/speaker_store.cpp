@@ -11,16 +11,17 @@ bool SpeakerKey::operator==(const SpeakerKey& other) const {
     return server == other.server && client == other.client;
 }
 void SpeakerStore::start(SpeakerKey key, std::string name, std::string serverName,
-                         SpeechKind kind, bool own) {
+                         SpeechKind kind, bool own, std::string uniqueId) {
     auto it = speakers_.find(key);
     if (it == speakers_.end()) {
         speakers_.emplace(key, Speaker{key, std::move(name), std::move(serverName), kind,
-                                      own, ++sequence_, std::nullopt});
+                                      own, ++sequence_, std::nullopt, std::move(uniqueId)});
     } else {
         it->second.nickname = std::move(name);
         it->second.serverName = std::move(serverName);
         it->second.kind = kind;
         it->second.own = own;
+        if (!uniqueId.empty()) it->second.uniqueId = std::move(uniqueId);
         it->second.removeAt.reset(); // A new start cancels an old delayed stop.
     }
 }

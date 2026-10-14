@@ -21,12 +21,13 @@ struct Speaker {
     bool own = false;
     std::uint64_t sequence = 0;
     std::optional<std::int64_t> removeAt;
+    std::string uniqueId;
 };
 // Owned exclusively by the GUI thread. No Qt or TS3 dependency.
 class SpeakerStore {
 public:
     void start(SpeakerKey key, std::string name, std::string serverName,
-               SpeechKind kind, bool own);
+               SpeechKind kind, bool own, std::string uniqueId = {});
     void stop(SpeakerKey key, std::int64_t now, int delayMs = 0);
     void remove(SpeakerKey key);
     void removeServer(std::uint64_t server);

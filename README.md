@@ -4,15 +4,13 @@ A native C++17 TeamSpeak **3** plugin with a small independent Qt window showing
 only active speakers. Normal speech has a green microphone. Incoming whispers
 have a purple microphone and `WHISPER`. The window is empty when nobody is talking.
 
-Author: **Khivus**. Download the [latest Windows release](https://github.com/khivus/WhosTalkin/releases/latest).
-
 ![Actual simulator window, using the plugin UI](docs/active-speakers.png)
 
 ```text
 ┌─ Active Speakers ───────── ⚙ × ┐
 │ 🎤 PlayerOne                   │
 │ 🎤 PlayerTwo           WHISPER │
-│ 🎤 Иван · 日本語               │
+│ 🎤 Алексей · 日本語            │
 └───────────────────────────────┘
 ```
 
@@ -43,8 +41,8 @@ builds to avoid debug Qt/CRT dependencies.
 
 ## Install and use
 
-1. Close TS3 and download [WhosTalkin-1.0.1-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.0.1/WhosTalkin-1.0.1-win64.ts3_plugin).
-   Open it with TeamSpeak's package installer, or download and copy **only**
+1. Close TS3 and download [WhosTalkin-1.1.0-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.0/WhosTalkin-1.1.0-win64.ts3_plugin).
+   Open it with TeamSpeak's package installer, or copy **only**
    `whostalkin_win64.dll` from the release into its plugin folder.
    A normal per-user installation uses `%APPDATA%\TS3Client\plugins`.
    Portable/local-config installations use their own plugin folder.
@@ -60,6 +58,7 @@ Chat commands:
 /whostalkin hide
 /whostalkin toggle
 /whostalkin settings
+/whostalkin filters
 /whostalkin reset
 ```
 
@@ -73,11 +72,15 @@ from the current window being hidden. Reset position recovers an offscreen windo
 
 ### Settings
 
+- Display: independent window (default) or experimental docking inside a compatible
+  TeamSpeak Qt main window.
 - Window: always on top (default on), start visible (on), hide from taskbar (on),
-  opacity (95%), scale (75–200%, including window dimensions and fonts), optional frameless mode, dark/light theme, automatic
+  opacity (95%), scale, optional frameless mode, dark/light theme, automatic
   height (on), and maximum height. Overflow within the maximum height scrolls.
 - Speakers: active users only (mandatory), whisper styling, own microphone,
   maximum displayed speakers, and alphabetical or speaking-start ordering.
+- People: include/exclude rules and an optional include-only mode, managed from
+  **Plugins > WhosTalkin > People filters** or the Speakers settings tab.
 - Behavior: active server tab only by default; optional all-server display with
   a server label on each row. This uses only activity TS3 actually exposes.
 - Removal delay: **0 ms by default**. A nonzero value up to 300 ms intentionally
@@ -86,10 +89,63 @@ from the current window being hidden. Reset position recovers an offscreen windo
 - Whisper target display is disabled with an explanation because API 26 provides
   no trustworthy received-target metadata.
 
-The speaker window is parentless and uses show-without-activation, so routine
+The independent speaker window is parentless and uses show-without-activation, so routine
 speaker changes do not request keyboard focus. It is designed to remain visible
 when TS3 is minimized. Exclusive fullscreen applications can cover ordinary
 desktop windows; this plugin does not hook or modify games.
+
+### Filter people
+
+Right-click a person in TeamSpeak's client list and choose the WhosTalkin
+**Include in Active Speakers**, **Exclude from Active Speakers**, or **Remove
+Active Speakers filter** action. The speaker window's row context menu offers
+the same three operations. Right-click an empty window or its title strip to
+open **People filters** even during silence.
+
+The filter manager has two modes:
+
+- **Everyone except excluded people** (default): included and unlisted people
+  can appear, and excluded people are hidden.
+- **Only included people**: only identities explicitly marked Included can appear.
+
+An included person appears only while actually speaking. Filters apply before
+the maximum row count, and clearing a rule immediately restores any currently
+active person allowed by the selected mode. The manager also lists saved rules
+for quiet/hidden people so exclusions can be changed after their row disappears.
+Changes in the filter manager apply and save immediately; other settings use Save.
+
+Rules use `CLIENT_UNIQUE_IDENTIFIER`, apply across connected servers, and survive
+nick changes and reconnects. Equal nicknames are distinct when their identities
+differ. The full identity is available in the manager's person tooltip. If the
+SDK cannot supply an identity, a rule is labeled **this connection** and expires
+on client/server disconnect; numeric client IDs are never stored as permanent
+person identities. Changing TeamSpeak identity creates a new person for filtering.
+
+![People filter manager in the simulator](docs/people-filters.png)
+
+### Experimental docked view
+
+Select **Settings > Window > Display > Dock in TeamSpeak window (experimental)**
+and Save. On a compatible Qt `QMainWindow`, Active Speakers becomes a movable,
+closable dock panel. Drag its native dock title to move it to another dock area.
+Plugin show/hide commands and the close button hide the whole panel.
+
+API 26 has no dedicated docking API. This mode uses public Qt `QMainWindow` /
+`QDockWidget` APIs: it selects one unambiguous main window, or the compatible
+parent supplied to the official Configure callback. If no compatible host is
+available or several main windows are ambiguous, the independent window remains
+usable. Opening WhosTalkin's Configure action in **Tools > Options > Addons** can
+supply the intended host parent. No client widget names, private layouts, memory
+offsets or hooks are used. Actual live TS3 docking still needs client verification.
+
+The TS3 window manages dock size, so automatic height, maximum floating height,
+frameless mode, taskbar hiding, opacity and always-on-top controls apply to the
+independent window. Those controls are disabled while docked mode is selected.
+The panel follows TS3 when it is minimized. Returning to the independent display
+restores its previous geometry. Only this plugin's dock area is saved; the
+client's complete dock layout is not saved or restored by the plugin.
+
+![Experimental docked panel in a simulated Qt host](docs/docked-simulator.png)
 
 ## Whisper metadata
 
@@ -128,6 +184,11 @@ needed. One initial snapshot queries talking flags, then resolves only active
 users; snapshots also recover activity once after server connection and own
 channel changes. Own-channel changes clear normal speech and retain incoming
 whispers until their stop/disconnect event.
+
+`PersonFilter` uses public identity strings for saved rules and server/client
+keys for connection-only rules. Filtering changes visibility while the speaker
+store continues consuming events. A row menu captures the identity at opening,
+so later speech transitions or client-ID reuse do not retarget that menu.
 
 Unload stops accepting callbacks, synchronously destroys windows and settings,
 and deletes the receiver so Qt removes its pending events before the DLL is
@@ -196,7 +257,8 @@ build\whostalkin_simulator.exe
 Put the development Qt `bin` directory on PATH first. The standalone simulator
 uses the same controller and speaker window with a mock source: two servers,
 duplicate nicknames across servers, Unicode, normal/whisper switches, own audio,
-and disconnect controls. It has a separate `simulator.ini`; it never connects
+disconnect and person-filter controls, and a mock Qt main window for docking.
+It has a separate `simulator.ini`; it never connects
 to a TS server. Closing its control window exits the simulation.
 
 For deterministic screenshot generation without touching saved simulator settings:
@@ -206,6 +268,9 @@ set QT_QPA_PLATFORM=offscreen
 set QT_QPA_FONTDIR=%WINDIR%\Fonts
 build\whostalkin_simulator.exe --preview docs/active-speakers.png
 ```
+
+Add `--filters` to capture the filter manager, or `--docked` to capture the mock
+host with the integrated panel. These are simulated host screenshots, not live TS3.
 
 For core-only tests without Qt or an SDK:
 
@@ -236,6 +301,10 @@ reloads the binary. The Qt suites use the offscreen platform. See
 - **No speaker rows:** silence intentionally produces an empty window. Muted or
   disabled own microphone activity is excluded. All-server mode does not grant
   audio access to other channels or otherwise unavailable server audio.
+- **A speaking person is missing:** check **People filters**, especially
+  include-only mode and saved exclusions. Remove their rule or include them.
+- **Dock setting still shows an independent window:** a compatible Qt main window
+  was not resolved. Try Configure from Addons, or select the independent display.
 - **Stopped row remains briefly:** set removal delay to **0 ms**.
 - **No whisper target:** expected SDK limitation, not a missing permission.
 - **Cannot save settings:** check write access to the client's config directory.

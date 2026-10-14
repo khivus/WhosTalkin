@@ -2,15 +2,15 @@
 #include "teamspeak/public_errors.h"
 
 namespace wt {
-std::string Ts3Source::nickname(SpeakerKey key) {
+std::optional<std::string> Ts3Source::clientText(SpeakerKey key, std::size_t flag) {
     char* name = nullptr;
     if (f_.getClientVariableAsString && f_.freeMemory &&
-        f_.getClientVariableAsString(key.server, key.client, CLIENT_NICKNAME, &name) == ERROR_ok && name) {
+        f_.getClientVariableAsString(key.server, key.client, flag, &name) == ERROR_ok && name) {
         const std::string result(name);
         f_.freeMemory(name);
         return result;
     }
-    return "Client " + std::to_string(key.client);
+    return std::nullopt;
 }
 std::string Ts3Source::serverName(std::uint64_t server) {
     char* name = nullptr;
@@ -30,11 +30,18 @@ std::optional<int> Ts3Source::integer(SpeakerKey key, std::size_t flag) {
 }
 ClientInfo Ts3Source::client(SpeakerKey key) {
     ClientInfo result;
-    result.nickname = nickname(key);
+    const auto name = clientText(key, CLIENT_NICKNAME);
+    const auto uid = clientText(key, CLIENT_UNIQUE_IDENTIFIER);
+    result.nickname = name.value_or("Client " + std::to_string(key.client));
+    result.uniqueId = uid.value_or("");
+    result.known = name.has_value() || uid.has_value();
     result.serverName = serverName(key.server);
     anyID own = 0;
     result.own = f_.getClientID && f_.getClientID(key.server, &own) == ERROR_ok && own == key.client;
-    if (const auto value = integer(key, CLIENT_FLAG_TALKING)) result.talking = *value == STATUS_TALKING;
+    if (const auto value = integer(key, CLIENT_FLAG_TALKING)) {
+        result.talking = *value == STATUS_TALKING;
+        result.known = true;
+    }
     int whisper = 0;
     if (f_.isReceivingWhisper && f_.isReceivingWhisper(key.server, key.client, &whisper) == ERROR_ok)
         result.incomingWhisper = whisper != 0;
@@ -68,7 +75,7 @@ std::vector<Speaker> Ts3Source::snapshot(std::optional<std::uint64_t> requested)
             if (!info.talking || !*info.talking || info.suppressed) continue;
             const auto kind = info.incomingWhisper ? SpeechKind::IncomingWhisper
                 : (info.own && info.outgoingWhisper ? SpeechKind::OutgoingWhisper : SpeechKind::Normal);
-            result.push_back({key, info.nickname, info.serverName, kind, info.own, 0, std::nullopt});
+            result.push_back({key, info.nickname, info.serverName, kind, info.own, 0, std::nullopt, info.uniqueId});
         }
         f_.freeMemory(clients);
     }

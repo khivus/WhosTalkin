@@ -23,6 +23,8 @@ struct ClientInfo {
     std::optional<bool> talking;
     bool incomingWhisper = false;
     bool suppressed = false;
+    std::string uniqueId;
+    bool known = true;
 };
 class EventSource {
 public:

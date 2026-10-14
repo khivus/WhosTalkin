@@ -11,7 +11,7 @@ public:
     std::uint64_t activeServer() override;
     void log(const QString& message) override;
 private:
-    std::string nickname(SpeakerKey key);
+    std::optional<std::string> clientText(SpeakerKey key, std::size_t flag);
     std::string serverName(std::uint64_t server);
     std::optional<int> integer(SpeakerKey key, std::size_t flag);
     TS3Functions f_;
