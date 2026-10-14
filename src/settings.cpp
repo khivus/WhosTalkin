@@ -10,7 +10,7 @@ void Settings::normalize() {
     scale = std::clamp(scale, 75, 200);
     maxHeight = std::clamp(maxHeight, 120, 1600);
     maxSpeakers = std::clamp(maxSpeakers, 1, 100);
-    removalDelay = std::clamp(removalDelay, 0, 300);
+    removalDelay = std::clamp(removalDelay, 0, maxRemovalDelay);
     if (dockArea != 1 && dockArea != 2 && dockArea != 4 && dockArea != 8) dockArea = 2;
 }
 SettingsFile::SettingsFile(const QString& path) {

@@ -15,7 +15,7 @@ installing the SDK. All build tooling resides in the ignored `.cache` directory.
 Created artifacts:
 
 - `build/whostalkin_win64.dll` and its matching copy in `dist`.
-- `dist/WhosTalkin-1.1.0-win64.ts3_plugin`, a ZIP with `package.ini`, the plugin
+- `dist/WhosTalkin-1.1.1-win64.ts3_plugin`, a ZIP with `package.ini`, the plugin
   under `plugins/`, and its MIT license in `plugins/whostalkin/`.
 - `dist/SHA256SUMS.txt` for the DLL and installer, and `dist/LICENSE.txt`.
 - `build/whostalkin_simulator.exe` (development Qt kit needed on PATH).
@@ -32,13 +32,13 @@ tested Release build byte for byte.
 
 ## Automated tests
 
-CTest completed **5/5 suites**, with **231 checks** total for version 1.1.0:
+CTest completed **5/5 suites**, with **238 checks** total for version 1.1.1:
 
 | Suite | Checks | Executed coverage |
 | --- | ---: | --- |
-| Speaker core | 24 | Server/client identity, simultaneous speakers, immediate removal, mode changes, rename, own-client filtering, delayed-stop cancellation, disconnect bypass, 10,000 rapid PTT cycles |
+| Speaker core | 27 | Server/client identity, simultaneous speakers, immediate removal, mode changes, rename, own-client filtering, delayed-stop cancellation, five-second retention/restart/deadline boundaries, disconnect bypass, 10,000 rapid PTT cycles |
 | People filter core | 19 | Include/exclude modes, stable UIDs across reconnects/servers, identical names, renamed labels, numeric client-ID reuse, transient rules, disconnect cleanup and restoration |
-| Qt UI | 66 | Real controller/canvas, Unicode and duplicate nicknames, row limits, server filtering, real Qt expiry timer, local muted status, settings/geometry restore, show/hide, frameless/max-height, visible settings/window destruction, empty-header containment and active-to-empty transitions at 75/90/100/150/200 percent in both frame modes under a simulated host stylesheet, proportional window dimensions |
+| Qt UI | 70 | Real controller/canvas, Unicode and duplicate nicknames, row limits, server filtering, real Qt expiry timer including five-second retention and duplicate stops, five-second settings range and INI persistence, local muted status, settings/geometry restore, show/hide, frameless/max-height, visible settings/window destruction, empty-header containment and active-to-empty transitions at 75/90/100/150/200 percent in both frame modes under a simulated host stylesheet, proportional window dimensions |
 | Filters and docking UI | 41 | Actual row context menu, captured UID after client-ID reuse, quiet-person inclusion, INI persistence, manager modes, no polling, real QDockWidget, independent geometry restoration, scale changes while docked, host destruction/fallback, ambiguous hosts and Configure parents, unload with dock/dialogs open |
 | Native DLL host | 81 | Actual exported functions and official SDK struct, worker callback queueing, client/global menu allocation and actions, incoming whispers, duplicate names, 2,000 PTT cycles, server disconnect, rename/mute/unmute, disabled own microphone, commands/settings, include-only filtering, official Configure parent and dock creation, pending-event cancellation, visible dock/filter/settings unload, persistent rules across DLL reload, worker-thread init/shutdown, SDK allocation cleanup and GUI-thread lookup verification |
 
@@ -48,9 +48,10 @@ development kit's copy. The test executable printed the loaded Qt runtime path.
 This exercises the compiled plugin with the client's actual Qt runtime in a
 separate mock host, not inside the running TeamSpeak client.
 
-The filters/docking UI suite also passed against the installed client's Qt
-runtime. These tests construct their own Qt main windows and do not attach to
-the live TS3 UI.
+The Qt UI suite, including the five-second timer checks, also passed against the
+installed client's Qt runtime for version 1.1.1. The filters/docking UI suite
+previously passed against that runtime for version 1.1.0. These tests construct
+their own Qt main windows and do not attach to the live TS3 UI.
 
 `docs/people-filters.png` and `docs/docked-simulator.png` were captured and
 visually checked using the simulator's shared production widgets. The filter
@@ -106,6 +107,9 @@ These have **not** been executed and must not be treated as passed:
    startup window. Minimize TS3 and confirm the window remains available.
 2. Have two clients transmit at once. Release one PTT key; only that row should
    vanish. Release both; the window should be empty at removal delay 0.
+   Set removal delay to 5000 ms, transmit briefly and stop: the row should remain
+   for five seconds. Transmit again before expiry and confirm the next stop starts
+   a fresh delay. Disconnect or mute the local microphone to bypass the delay.
 3. Receive a direct and a group whisper; both must show purple `WHISPER` without
    a guessed recipient. Switch from normal speech to whisper without a duplicate.
 4. Mute the local microphone, try PTT, then unmute and transmit. Disabled local

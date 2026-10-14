@@ -9,7 +9,7 @@ import zipfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=pathlib.Path, required=True)
-    parser.add_argument('--version', default='1.1.0')
+    parser.add_argument('--version', default='1.1.1')
     parser.add_argument('--output', type=pathlib.Path, default=pathlib.Path('dist'))
     args = parser.parse_args()
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:[-.][A-Za-z0-9]+)*', args.version):

@@ -1,8 +1,9 @@
 # WhosTalkin
 
 A native C++17 TeamSpeak **3** plugin with a small independent Qt window showing
-only active speakers. Normal speech has a green microphone. Incoming whispers
-have a purple microphone and `WHISPER`. The window is empty when nobody is talking.
+active speakers, with an optional removal delay to catch brief speech. Normal
+speech has a green microphone. Incoming whispers have a purple microphone and
+`WHISPER`. With the default zero delay, the window is empty when nobody is talking.
 
 ![Actual simulator window, using the plugin UI](docs/active-speakers.png)
 
@@ -41,7 +42,7 @@ builds to avoid debug Qt/CRT dependencies.
 
 ## Install and use
 
-1. Close TS3 and download [WhosTalkin-1.1.0-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.0/WhosTalkin-1.1.0-win64.ts3_plugin).
+1. Close TS3 and download [WhosTalkin-1.1.1-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.1/WhosTalkin-1.1.1-win64.ts3_plugin).
    Open it with TeamSpeak's package installer, or copy **only**
    `whostalkin_win64.dll` from the release into its plugin folder.
    A normal per-user installation uses `%APPDATA%\TS3Client\plugins`.
@@ -77,15 +78,17 @@ from the current window being hidden. Reset position recovers an offscreen windo
 - Window: always on top (default on), start visible (on), hide from taskbar (on),
   opacity (95%), scale, optional frameless mode, dark/light theme, automatic
   height (on), and maximum height. Overflow within the maximum height scrolls.
-- Speakers: active users only (mandatory), whisper styling, own microphone,
+- Speakers: speaking users (plus any configured removal delay), whisper styling, own microphone,
   maximum displayed speakers, and alphabetical or speaking-start ordering.
 - People: include/exclude rules and an optional include-only mode, managed from
   **Plugins > WhosTalkin > People filters** or the Speakers settings tab.
 - Behavior: active server tab only by default; optional all-server display with
   a server label on each row. This uses only activity TS3 actually exposes.
-- Removal delay: **0 ms by default**. A nonzero value up to 300 ms intentionally
-  holds a stopped row briefly to smooth PTT transitions. Disconnect and mute
-  removal bypass this delay. Set it to 0 for strictly current activity.
+- Removal delay: **0 ms by default**, configurable up to **5000 ms (5 seconds)**.
+  Set **Settings > Speakers > Behavior > Removal delay** to 5000 ms to keep brief
+  speakers visible for five seconds after they stop. Speaking again cancels the
+  pending removal; the next stop starts a fresh delay. Disconnect and mute removal
+  bypass this delay. Set it to 0 for strictly current activity.
 - Whisper target display is disabled with an explanation because API 26 provides
   no trustworthy received-target metadata.
 
@@ -108,7 +111,7 @@ The filter manager has two modes:
   can appear, and excluded people are hidden.
 - **Only included people**: only identities explicitly marked Included can appear.
 
-An included person appears only while actually speaking. Filters apply before
+An included person appears while speaking and during any configured removal delay. Filters apply before
 the maximum row count, and clearing a rule immediately restores any currently
 active person allowed by the selected mode. The manager also lists saved rules
 for quiet/hidden people so exclusions can be changed after their row disappears.

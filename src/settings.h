@@ -8,6 +8,7 @@
 class QSettings;
 namespace wt {
 struct Settings {
+    static constexpr int maxRemovalDelay = 5000;
     bool alwaysOnTop = true;
     bool startVisible = true;
     bool hideTaskbar = true;

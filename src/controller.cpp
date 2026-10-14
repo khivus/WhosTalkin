@@ -133,7 +133,7 @@ void Controller::render() {
 void Controller::armExpiry() {
     const auto next = store_.nextExpiry();
     if (!next) { expiry_.stop(); return; }
-    expiry_.start(static_cast<int>(std::clamp<std::int64_t>(*next - clock_.elapsed(), 1, 301)));
+    expiry_.start(static_cast<int>(std::clamp<std::int64_t>(*next - clock_.elapsed(), 1, Settings::maxRemovalDelay)));
 }
 void Controller::applySettings(Settings settings) {
     settings.normalize(); settings_ = settings;
@@ -191,7 +191,7 @@ void Controller::openSettings() {
     auto* speakerLayout = new QVBoxLayout(speakerPage);
     auto* speakersGroup = new QGroupBox("Speakers", dialog);
     auto* form = new QFormLayout(speakersGroup);
-    auto* activeOnly = checkbox(form, "Only currently speaking users", true);
+    auto* activeOnly = checkbox(form, "Speaking users (plus configured removal delay)", true);
     activeOnly->setEnabled(false);
     auto* whisper = checkbox(form, "Show whisper indicator", settings_.showWhisper);
     auto* target = checkbox(form, "Show whisper target (unavailable in API 26)", false);
@@ -211,8 +211,9 @@ void Controller::openSettings() {
     auto* behavior = new QGroupBox("Behavior", dialog);
     auto* behaviorForm = new QFormLayout(behavior);
     auto* servers = checkbox(behaviorForm, "All connected servers (available audio events only)", settings_.allServers);
-    auto* delay = spin(behaviorForm, "Removal delay", settings_.removalDelay, 0, 300, " ms");
-    delay->setToolTip("0 removes immediately. A nonzero delay intentionally holds a stopped row briefly.");
+    auto* delay = spin(behaviorForm, "Removal delay", settings_.removalDelay, 0, Settings::maxRemovalDelay, " ms");
+    delay->setObjectName("removalDelay");
+    delay->setToolTip("0 removes immediately. Up to 5000 ms (5 seconds) keeps a stopped speaker visible so you can notice brief speech. Disconnects and muting remove immediately.");
     speakerLayout->addWidget(behavior);
     speakerLayout->addStretch();
     tabs->addTab(speakerPage, "Speakers");

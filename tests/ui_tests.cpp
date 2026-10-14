@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QLayout>
 #include <QPointer>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolButton>
@@ -122,6 +123,12 @@ int main(int argc, char** argv) {
     talk({1,1}, 0); talk({1,1}, 1); wait(130);
     check(count() == 2, "restarted PTT cancels actual Qt expiry timer");
     talk({1,1}, 0); wait(130); check(count() == 1, "Qt timer removes expired row");
+    s.removalDelay = 5000; c->applySettings(s);
+    check(c->settings().removalDelay == 5000, "five-second delay accepted by controller settings");
+    talk({1,1}, 1); talk({1,1}, 0); wait(4500);
+    check(count() == 2, "brief speaker stays visible near the five-second deadline");
+    talk({1,1}, 0); wait(1000);
+    check(count() == 1, "five-second Qt expiry removes row without duplicate stops extending it");
     talk({1,3}, 2); check(!c->store().find({1,3}), "STATUS_TALKING_WHILE_DISABLED never shown");
     talk({1,3}, 1); mock->clients[{1,3}].suppressed = true;
     e.type = EventType::RefreshClient; e.key = {1,0}; c->handle(e);
@@ -136,9 +143,11 @@ int main(int argc, char** argv) {
     QPointer<QWidget> dialog;
     for (auto* w : QApplication::topLevelWidgets()) if (w->objectName() == "whostalkinSettings") dialog = w;
     check(dialog && dialog->isVisible(), "settings opened");
+    auto* delay = dialog->findChild<QSpinBox*>("removalDelay");
+    check(delay && delay->maximum() == 5000 && delay->value() == 5000, "settings dialog offers the saved five-second delay");
     c.reset(); check(!window && !dialog, "unload destroys visible window and settings synchronously");
     SettingsFile file(dir.path() + "/test.ini");
     const auto saved = file.load();
-    check(saved.frameless && saved.opacity == 70 && saved.allServers && !file.geometry().isEmpty(), "settings and geometry restored from disk");
+    check(saved.frameless && saved.opacity == 70 && saved.allServers && saved.removalDelay == 5000 && !file.geometry().isEmpty(), "settings, five-second delay and geometry restored from disk");
     std::cout << checks << " UI checks passed\n";
 }

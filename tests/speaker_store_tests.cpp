@@ -45,6 +45,11 @@ int main() {
     s.stop(b, 400, 200); s.stop(b, 500, 200);
     check(s.nextExpiry() == 600, "duplicate stop does not extend retention");
     s.expire(600); check(s.size() == 0, "delayed stop expires exactly");
+    start(a); s.stop(a, 1000, 5000); s.expire(5999);
+    check(s.find(a), "five-second retention preserves a brief speaker until the deadline");
+    start(a); s.stop(a, 6000, 5000); s.expire(10999);
+    check(s.find(a), "restarted speech receives a fresh five-second retention period");
+    s.expire(11000); check(!s.find(a), "five-second retention expires exactly at the new deadline");
     start(a, SpeechKind::Normal, true);
     check(s.visible(1, false, false).empty(), "optional own microphone filter");
     s.stop(a, 0, 200); s.remove(a); check(!s.nextExpiry(), "disconnect bypasses delay");

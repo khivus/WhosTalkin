@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.1 – 2026-10-14
+
+- Increase the maximum removal delay from 300 ms to 5000 ms (5 seconds), so brief
+  speakers remain visible long enough to notice. The default remains 0 ms.
+- Schedule the expiry timer directly for the next removal deadline instead of
+  waking every 301 ms during longer delays. Restarted speech cancels removal;
+  disconnects and muted/disabled speech still remove immediately.
+- Verify five-second retention, expiration, restart behavior and saved settings.
+
 ## 1.1.0 – 2026-10-14
 
 - Add included/excluded people and an optional include-only display mode.
