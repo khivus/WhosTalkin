@@ -32,6 +32,8 @@ public:
     QDockWidget* dock() const;
     const SpeakerStore& store() const { return store_; }
     const Settings& settings() const { return settings_; }
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
 private:
     void render();
     void armExpiry();
@@ -39,6 +41,8 @@ private:
     void seed(std::optional<std::uint64_t> server = std::nullopt);
     void ensureWindow();
     void restoreFloatingGeometry();
+    void captureDockSize();
+    void restoreDockSize();
     void updatePresentation();
     void useHost(QMainWindow* host);
     void persistFilters();
@@ -55,14 +59,18 @@ private:
     QPointer<QDockWidget> dock_;
     QByteArray floatingGeometry_;
     QSize floatingSize_;
+    QSize dockSize_;
     int floatingScale_ = 100;
     QPointer<QDialog> dialog_;
     QPointer<QDialog> peopleDialog_;
     QTimer expiry_;
+    QTimer dockSizeSave_;
     QElapsedTimer clock_;
     std::uint64_t activeServer_ = 0;
     bool visibleRequested_ = false;
     bool hostSearchAllowed_ = true;
     bool shuttingDown_ = false;
+    bool dockSizePendingRestore_ = false;
+    bool dockSizeRestoreQueued_ = false;
 };
 }

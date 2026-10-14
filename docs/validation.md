@@ -32,14 +32,15 @@ tested Release build byte for byte.
 
 ## Automated tests
 
-CTest completed **5/5 suites**, with **238 checks** total for version 1.1.1:
+CTest completed **6/6 suites**, with **302 checks** total for the unreleased version 1.1.1:
 
 | Suite | Checks | Executed coverage |
 | --- | ---: | --- |
 | Speaker core | 27 | Server/client identity, simultaneous speakers, immediate removal, mode changes, rename, own-client filtering, delayed-stop cancellation, five-second retention/restart/deadline boundaries, disconnect bypass, 10,000 rapid PTT cycles |
 | People filter core | 19 | Include/exclude modes, stable UIDs across reconnects/servers, identical names, renamed labels, numeric client-ID reuse, transient rules, disconnect cleanup and restoration |
 | Qt UI | 70 | Real controller/canvas, Unicode and duplicate nicknames, row limits, server filtering, real Qt expiry timer including five-second retention and duplicate stops, five-second settings range and INI persistence, local muted status, settings/geometry restore, show/hide, frameless/max-height, visible settings/window destruction, empty-header containment and active-to-empty transitions at 75/90/100/150/200 percent in both frame modes under a simulated host stylesheet, proportional window dimensions |
-| Filters and docking UI | 41 | Actual row context menu, captured UID after client-ID reuse, quiet-person inclusion, INI persistence, manager modes, no polling, real QDockWidget, independent geometry restoration, scale changes while docked, host destruction/fallback, ambiguous hosts and Configure parents, unload with dock/dialogs open |
+| Filters and docking UI | 59 | Actual row context menu, captured UID after client-ID reuse, quiet-person inclusion, INI persistence, manager modes, no polling, real QDockWidget, independent geometry restoration, scale changes while docked, host destruction/fallback, ambiguous hosts and Configure parents, unload with dock/dialogs open, saved dock width/height across full host/controller recreation, delayed host show, hidden/minimized startup, immediate shutdown before geometry debounce and retention of unrelated host content |
+| Columns UI | 46 | Automatic/fixed columns, both fill directions, height-first vertical stacking, height-only dock/window resize, automatic floating maximum height, live width/scale reflow, real wide dock and visible rows, context targets in each column/after scrolling/after filtering, unused cells, remainder pixels, total speaker limits, vertical overflow, empty header, settings Save and INI reload |
 | Native DLL host | 81 | Actual exported functions and official SDK struct, worker callback queueing, client/global menu allocation and actions, incoming whispers, duplicate names, 2,000 PTT cycles, server disconnect, rename/mute/unmute, disabled own microphone, commands/settings, include-only filtering, official Configure parent and dock creation, pending-event cancellation, visible dock/filter/settings unload, persistent rules across DLL reload, worker-thread init/shutdown, SDK allocation cleanup and GUI-thread lookup verification |
 
 The native-host suite also passed separately while loading **the installed TS3
@@ -49,9 +50,30 @@ This exercises the compiled plugin with the client's actual Qt runtime in a
 separate mock host, not inside the running TeamSpeak client.
 
 The Qt UI suite, including the five-second timer checks, also passed against the
-installed client's Qt runtime for version 1.1.1. The filters/docking UI suite
-previously passed against that runtime for version 1.1.0. These tests construct
+installed client's Qt runtime for version 1.1.1. The filters/docking UI suite,
+including the dock-size restart regressions, also passed against that runtime
+for version 1.1.1. These tests construct
 their own Qt main windows and do not attach to the live TS3 UI.
+
+The new full-restart dock-size test failed before the fix: a new host/controller
+lost the previous dock thickness. It now passes for bottom-dock height and
+side-dock width, including host destruction before the geometry save timer fires.
+Only WhosTalkin's dock dimensions/area are persisted, and Qt constrains the
+restored size within the current host layout. A real TeamSpeak restart remains
+part of the live checklist.
+
+The columns UI suite passed separately using the installed client's Qt runtime.
+`docs/columns-simulator.png` was captured from its real Qt dock, with seven mocked
+speakers filling three columns. The image was inspected: names, Unicode,
+normal/whisper microphones, elided long names and both whisper badges stay inside
+their own cells. These column changes are part of the unreleased build and have
+not been tested inside the running TeamSpeak client.
+
+`docs/columns-stacked-simulator.png` was also captured and inspected after choosing
+vertical filling in the real settings dialog: four speakers fill the first
+column down to the dock's available height, with the remaining three in the
+second column. Additional checks grow/shrink only the dock height, confirm the
+resulting wrap positions, test scrolling and restore the saved fill direction.
 
 `docs/people-filters.png` and `docs/docked-simulator.png` were captured and
 visually checked using the simulator's shared production widgets. The filter
@@ -128,3 +150,11 @@ These have **not** been executed and must not be treated as passed:
 10. Choose experimental docking. Verify the main-window panel, native movement,
     show/hide, minimize behavior and switching back to independent geometry.
     Change scale while docked, switch back, then unload with the panel visible.
+    Resize the dock, restart TS3, and confirm top/bottom-dock height or side-dock
+    width is restored. Repeat with startup hidden/minimized and then show it.
+11. Leave Columns on Auto and widen/narrow the dock. Speakers should fill left to
+    right and wrap into more/fewer rows. Choose a fixed count, try server labels
+    and whispers, and right-click people in each column after scrolling.
+    Set Column fill to Top to bottom, then right. Grow/shrink the dock height;
+    a column should use the available height before starting the next column.
+    Save/restart and confirm the fill direction is restored.

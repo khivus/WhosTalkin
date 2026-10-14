@@ -9,6 +9,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QPushButton>
+#include <QSettings>
 #include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -177,6 +178,72 @@ int main(int argc, char** argv) {
         auto s = c->settings(); s.integrate = true; c->applySettings(s);
         check(c->dock() && replacement.dockWidgetArea(c->dock()) != Qt::NoDockWidgetArea,
               "destroying a previous host does not invalidate a newly supplied host");
+    }
+    for (const auto area : {Qt::BottomDockWidgetArea, Qt::RightDockWidgetArea}) {
+        const bool horizontal = area == Qt::BottomDockWidgetArea;
+        const auto orientation = horizontal ? Qt::Vertical : Qt::Horizontal;
+        const auto path = directory.path() + QString("/dock-size-%1.ini").arg(static_cast<int>(area));
+        auto thickness = [horizontal](QDockWidget* dock) { return horizontal ? dock->height() : dock->width(); };
+        int saved = 0;
+        {
+            QMainWindow host; host.setCentralWidget(new QWidget); host.resize(900, 650); host.show();
+            auto c = std::make_unique<Controller>(std::make_unique<MockSource>(), path); c->initialize();
+            auto s = c->settings(); s.integrate = true; s.dockArea = area; c->applySettings(s); wait();
+            const int wanted = horizontal ? 220 : 310;
+            host.resizeDocks({c->dock()}, {wanted}, orientation); wait();
+            saved = thickness(c->dock());
+            check(qAbs(saved - wanted) <= 2, "manual dock resize sets the requested width or height");
+            c->hide(); c->show(); wait();
+            check(thickness(c->dock()) == saved, "hide and reopen retain the dock's dimensions");
+            c.reset(); // Unload before a debounced geometry save could fire.
+        }
+        {
+            // Recreate both objects, as happens during a complete TS restart.
+            // The new main window starts hidden and has different dimensions.
+            auto host = std::make_unique<QMainWindow>();
+            auto* center = new QWidget; host->setCentralWidget(center);
+            auto* other = new QDockWidget("Unrelated panel", host.get()); other->setWidget(new QLabel("Retained"));
+            host->addDockWidget(Qt::LeftDockWidgetArea, other); host->resize(1100, 780);
+            auto c = std::make_unique<Controller>(std::make_unique<MockSource>(), path); c->initialize();
+            host->show(); wait();
+            check(c->dock() && host->dockWidgetArea(c->dock()) == area && qAbs(thickness(c->dock()) - saved) <= 2,
+                  "full restart restores dock area and dimensions after the host is shown");
+            check(host->centralWidget() == center && host->dockWidgetArea(other) == Qt::LeftDockWidgetArea,
+                  "dock size restoration retains unrelated host content and dock placement");
+            host->resizeDocks({c->dock()}, {saved + 25}, orientation); wait(); saved = thickness(c->dock());
+            host.reset(); wait(); // Host children can disappear before plugin shutdown.
+            c.reset();
+            QSettings file(path, QSettings::IniFormat);
+            const auto stored = file.value("dockSize").toSize();
+            check(stored.isValid() && (horizontal ? stored.height() : stored.width()) == saved,
+                  "last dock resize survives host destruction before the save timer fires");
+        }
+        {
+            QMainWindow host; host.setCentralWidget(new QWidget); host.resize(1000, 700); host.show();
+            auto c = std::make_unique<Controller>(std::make_unique<MockSource>(), path); c->initialize(); wait();
+            check(c->dock() && qAbs(thickness(c->dock()) - saved) <= 2,
+                  "restart restores the latest size even when the previous host was destroyed first");
+        }
+        {
+            SettingsFile file(path); auto s = file.load(); s.startVisible = false; file.save(s); file.sync();
+        }
+        {
+            QMainWindow host; host.setCentralWidget(new QWidget); host.resize(1000, 700); host.show();
+            auto c = std::make_unique<Controller>(std::make_unique<MockSource>(), path); c->initialize(); wait();
+            check(c->dock() && c->dock()->isHidden(), "saved hidden startup does not open the dock");
+            c->show(); wait();
+            check(qAbs(thickness(c->dock()) - saved) <= 2, "first show after a hidden startup restores saved dock size");
+        }
+        {
+            SettingsFile file(path); auto s = file.load(); s.startVisible = true; file.save(s); file.sync();
+        }
+        {
+            QMainWindow host; host.setCentralWidget(new QWidget); host.resize(1000, 700); host.showMinimized();
+            auto c = std::make_unique<Controller>(std::make_unique<MockSource>(), path); c->initialize(); wait();
+            host.showNormal(); wait();
+            check(c->dock() && qAbs(thickness(c->dock()) - saved) <= 2,
+                  "restoring a minimized startup window applies saved dock dimensions");
+        }
     }
     std::cout << checks << " filter and docking UI checks passed\n";
 }

@@ -1,7 +1,18 @@
 # Changelog
 
-## 1.1.1 – 2026-10-14
+## 1.1.1 – 2026-10-14 (unreleased)
 
+- Remember dock dimensions across TeamSpeak restarts: restore side-dock width or
+  top/bottom-dock height after the main window layout is ready. Save resizes
+  automatically and flush the latest size on hide/unload or host destruction.
+- Add automatic columns that fit the available window/dock width and scale,
+  plus a saved choice of one through eight fixed columns.
+- Add a saved Column Fill setting: left to right then down, or top to bottom then
+  right. Vertical filling uses the available dock/window height before wrapping,
+  grows to the maximum height in automatic floating mode, and scrolls vertically
+  on overflow. Both modes retain the speaker order and total speaker limit.
+- Reflow on resize, size automatic floating height from grid rows, and keep
+  right-click person actions aligned with each cell, including after scrolling.
 - Increase the maximum removal delay from 300 ms to 5000 ms (5 seconds), so brief
   speakers remain visible long enough to notice. The default remains 0 ms.
 - Schedule the expiry timer directly for the next removal deadline instead of

@@ -30,6 +30,7 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 private:
     int chromeHeight() const;
+    int automaticHeightLimit() const;
     void adjustListHeight();
     Settings settings_;
     QWidget* titleBar_;
@@ -41,5 +42,6 @@ private:
     QPoint dragOffset_;
     bool dragging_ = false;
     bool embedded_ = false;
+    bool heightAdjustmentPending_ = false;
 };
 }

@@ -29,6 +29,10 @@ Controller::Controller(std::unique_ptr<EventSource> source, const QString& path)
     floatingGeometry_ = settingsFile_.geometry();
     floatingSize_ = settingsFile_.geometrySize();
     floatingScale_ = settingsFile_.geometryScale();
+    dockSize_ = settingsFile_.dockSize();
+    dockSizeSave_.setSingleShot(true);
+    dockSizeSave_.setInterval(250);
+    connect(&dockSizeSave_, &QTimer::timeout, this, [this] { saveGeometry(); });
     ensureWindow();
 }
 Controller::~Controller() {
@@ -199,6 +203,16 @@ void Controller::openSettings() {
     target->setToolTip("The receiving SDK exposes a whisper boolean, without a target type or ID.");
     auto* own = checkbox(form, "Show my microphone activity", settings_.showOwn);
     auto* max = spin(form, "Maximum displayed", settings_.maxSpeakers, 1, 100, "");
+    auto* columns = spin(form, "Columns", settings_.columns, 0, Settings::maxColumns, "");
+    columns->setObjectName("speakerColumns");
+    columns->setSpecialValueText("Auto");
+    columns->setToolTip("Auto fits columns to the available width and scale. Choose 1 for a single list, or 2–8 for a fixed count.");
+    auto* fill = new QComboBox(dialog);
+    fill->setObjectName("columnFill");
+    fill->addItems({"Left to right, then down", "Top to bottom, then right"});
+    fill->setCurrentIndex(settings_.stackColumns ? 1 : 0);
+    fill->setToolTip("Top to bottom fills the available dock/window height before using the next column. With automatic floating height, it fills up to the maximum height. Overflow scrolls vertically.");
+    form->addRow("Column fill", fill);
     auto* order = new QComboBox(dialog);
     order->addItems({"Speaking start time", "Alphabetical"});
     order->setCurrentIndex(settings_.alphabetical ? 1 : 0);
@@ -234,7 +248,8 @@ void Controller::openSettings() {
         s.darkTheme = dark->isChecked(); s.autoHeight = autoHeight->isChecked();
         s.opacity = opacity->value(); s.scale = scale->value(); s.maxHeight = height->value();
         s.showWhisper = whisper->isChecked(); s.showOwn = own->isChecked();
-        s.maxSpeakers = max->value(); s.alphabetical = order->currentIndex() == 1;
+        s.maxSpeakers = max->value(); s.columns = columns->value(); s.alphabetical = order->currentIndex() == 1;
+        s.stackColumns = fill->currentIndex() == 1;
         s.allServers = servers->isChecked(); s.removalDelay = delay->value();
         applySettings(s); dialog->accept();
     });

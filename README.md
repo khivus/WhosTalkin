@@ -42,7 +42,11 @@ builds to avoid debug Qt/CRT dependencies.
 
 ## Install and use
 
-1. Close TS3 and download [WhosTalkin-1.1.1-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.1/WhosTalkin-1.1.1-win64.ts3_plugin).
+Version **1.1.1**, including columns and the five-second removal delay, is currently
+unreleased. Its local installer is `dist/WhosTalkin-1.1.1-win64.ts3_plugin` after
+building/packaging from source. The currently published installer is version 1.1.0:
+
+1. Close TS3 and download [WhosTalkin-1.1.0-win64.ts3_plugin](https://github.com/khivus/WhosTalkin/releases/download/v1.1.0/WhosTalkin-1.1.0-win64.ts3_plugin).
    Open it with TeamSpeak's package installer, or copy **only**
    `whostalkin_win64.dll` from the release into its plugin folder.
    A normal per-user installation uses `%APPDATA%\TS3Client\plugins`.
@@ -80,6 +84,16 @@ from the current window being hidden. Reset position recovers an offscreen windo
   height (on), and maximum height. Overflow within the maximum height scrolls.
 - Speakers: speaking users (plus any configured removal delay), whisper styling, own microphone,
   maximum displayed speakers, and alphabetical or speaking-start ordering.
+- Columns: **Auto** by default, fitting up to eight columns to the available width
+  and scale in either a dock or floating window. **Settings > Speakers > Columns**
+  also offers a fixed count from **1 to 8**; choose 1 to retain a single list.
+  **Column fill** offers **Left to right, then down** (default) or **Top to bottom,
+  then right**. Vertical filling uses the dock/window height before starting the
+  next column; with automatic floating height it grows up to the maximum height.
+  If the selected columns cannot hold all speakers, the grid scrolls vertically.
+  Both directions retain the selected speaker order. The maximum
+  displayed count applies to the whole grid. Automatic floating height follows
+  the number of grid rows, and overflow scrolls vertically.
 - People: include/exclude rules and an optional include-only mode, managed from
   **Plugins > WhosTalkin > People filters** or the Speakers settings tab.
 - Behavior: active server tab only by default; optional all-server display with
@@ -141,12 +155,15 @@ usable. Opening WhosTalkin's Configure action in **Tools > Options > Addons** ca
 supply the intended host parent. No client widget names, private layouts, memory
 offsets or hooks are used. Actual live TS3 docking still needs client verification.
 
-The TS3 window manages dock size, so automatic height, maximum floating height,
+The TS3 window manages dock resizing, so automatic height, maximum floating height,
 frameless mode, taskbar hiding, opacity and always-on-top controls apply to the
 independent window. Those controls are disabled while docked mode is selected.
 The panel follows TS3 when it is minimized. Returning to the independent display
-restores its previous geometry. Only this plugin's dock area is saved; the
-client's complete dock layout is not saved or restored by the plugin.
+restores its previous geometry. The plugin saves its own dock area and dimensions:
+left/right docks restore their width, and top/bottom docks restore their height
+after startup. Qt fits the saved size within the current main window. Resize
+changes save automatically, including when the plugin is hidden or unloaded.
+The client's complete dock layout is not saved or restored by the plugin.
 
 ![Experimental docked panel in a simulated Qt host](docs/docked-simulator.png)
 

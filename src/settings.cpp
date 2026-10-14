@@ -10,6 +10,7 @@ void Settings::normalize() {
     scale = std::clamp(scale, 75, 200);
     maxHeight = std::clamp(maxHeight, 120, 1600);
     maxSpeakers = std::clamp(maxSpeakers, 1, 100);
+    columns = std::clamp(columns, 0, maxColumns);
     removalDelay = std::clamp(removalDelay, 0, maxRemovalDelay);
     if (dockArea != 1 && dockArea != 2 && dockArea != 4 && dockArea != 8) dockArea = 2;
 }
@@ -25,9 +26,9 @@ Settings SettingsFile::load() const {
 #define LOAD_INT(field) s.field = file_->value(QStringLiteral(#field), s.field).toInt()
     LOAD_BOOL(alwaysOnTop); LOAD_BOOL(startVisible); LOAD_BOOL(hideTaskbar);
     LOAD_BOOL(frameless); LOAD_BOOL(darkTheme); LOAD_BOOL(autoHeight);
-    LOAD_BOOL(showWhisper); LOAD_BOOL(showOwn); LOAD_BOOL(allServers); LOAD_BOOL(alphabetical);
+    LOAD_BOOL(showWhisper); LOAD_BOOL(showOwn); LOAD_BOOL(allServers); LOAD_BOOL(alphabetical); LOAD_BOOL(stackColumns);
     LOAD_BOOL(includeOnly); LOAD_BOOL(integrate); LOAD_INT(dockArea);
-    LOAD_INT(opacity); LOAD_INT(scale); LOAD_INT(maxHeight); LOAD_INT(maxSpeakers); LOAD_INT(removalDelay);
+    LOAD_INT(opacity); LOAD_INT(scale); LOAD_INT(maxHeight); LOAD_INT(maxSpeakers); LOAD_INT(columns); LOAD_INT(removalDelay);
 #undef LOAD_BOOL
 #undef LOAD_INT
     const int count = file_->beginReadArray("people");
@@ -48,9 +49,9 @@ void SettingsFile::save(const Settings& input) {
     s.normalize();
 #define SAVE(field) file_->setValue(QStringLiteral(#field), s.field)
     SAVE(alwaysOnTop); SAVE(startVisible); SAVE(hideTaskbar); SAVE(frameless); SAVE(darkTheme);
-    SAVE(autoHeight); SAVE(showWhisper); SAVE(showOwn); SAVE(allServers); SAVE(alphabetical);
+    SAVE(autoHeight); SAVE(showWhisper); SAVE(showOwn); SAVE(allServers); SAVE(alphabetical); SAVE(stackColumns);
     SAVE(includeOnly); SAVE(integrate); SAVE(dockArea);
-    SAVE(opacity); SAVE(scale); SAVE(maxHeight); SAVE(maxSpeakers); SAVE(removalDelay);
+    SAVE(opacity); SAVE(scale); SAVE(maxHeight); SAVE(maxSpeakers); SAVE(columns); SAVE(removalDelay);
 #undef SAVE
     file_->remove("people");
     file_->beginWriteArray("people", static_cast<int>(s.people.size()));
@@ -72,6 +73,13 @@ void SettingsFile::saveGeometry(const QByteArray& geometry, const QSize& size, i
     file_->setValue("geometry", geometry);
     file_->setValue("geometrySize", size);
     file_->setValue("geometryScale", scale);
+}
+QSize SettingsFile::dockSize() const {
+    const auto size = file_->value("dockSize").toSize();
+    return size.width() > 0 && size.height() > 0 ? size : QSize();
+}
+void SettingsFile::saveDockSize(const QSize& size) {
+    if (size.width() > 0 && size.height() > 0) file_->setValue("dockSize", size);
 }
 bool SettingsFile::sync() { file_->sync(); return file_->status() == QSettings::NoError; }
 }

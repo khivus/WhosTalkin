@@ -10,9 +10,11 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QScreen>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSizeGrip>
 #include <QToolButton>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <algorithm>
 
@@ -22,28 +24,69 @@ public:
     std::vector<Speaker> speakers;
     Settings settings;
     std::function<void(SpeakerKey, const QPoint&)> onContext;
+    std::function<void()> onHeightChanged;
+    std::function<int()> availableRows;
     int rowHeight() const { return qRound(32 * settings.scale / 100.0); }
+    int columnCount() const {
+        if (settings.columns) return settings.columns;
+        const int targetWidth = qRound(240 * settings.scale / 100.0);
+        return std::clamp(width() / targetWidth, 1, Settings::maxColumns);
+    }
+    int rowCount() const {
+        const int count = static_cast<int>(speakers.size());
+        const int columns = columnCount();
+        const int minimumRows = (count + columns - 1) / columns;
+        if (!settings.stackColumns) return minimumRows;
+        // Fill the visible height first; extend columns vertically only when
+        // the selected column count cannot hold all speakers in that height.
+        return std::min(count, std::max(minimumRows, availableRows ? availableRows() : 1));
+    }
+    QRect cellRect(int index) const {
+        const int columns = columnCount();
+        const int rows = std::max(1, rowCount());
+        const int column = settings.stackColumns ? index / rows : index % columns;
+        const int row = settings.stackColumns ? index % rows : index / columns;
+        const int cellWidth = std::max(1, width() / columns);
+        const int left = column * cellWidth;
+        return QRect(left, row * rowHeight(),
+                     column == columns - 1 ? width() - left : cellWidth, rowHeight());
+    }
     explicit SpeakerCanvas(QWidget* parent) : QWidget(parent) {
         setObjectName("speakerCanvas");
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
     void refresh() {
-        setFixedHeight(static_cast<int>(speakers.size()) * rowHeight());
+        const int columns = columnCount();
+        const int rows = rowCount();
+        const int desiredHeight = rows * rowHeight();
+        const bool heightChanged = height() != desiredHeight;
+        setFixedHeight(desiredHeight);
         setProperty("speakerCount", static_cast<int>(speakers.size()));
+        setProperty("columnCount", columns);
+        setProperty("rowCount", rows);
         const auto whispers = std::count_if(speakers.begin(), speakers.end(), [](const Speaker& s) {
             return s.kind == SpeechKind::IncomingWhisper;
         });
         setProperty("whisperCount", static_cast<int>(whispers));
         update();
+        if (heightChanged && onHeightChanged) onHeightChanged();
     }
 protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QWidget::resizeEvent(event);
+        refresh();
+    }
     void contextMenuEvent(QContextMenuEvent* event) override {
-        const int row = event->pos().y() < 0 ? -1 : event->pos().y() / rowHeight();
-        if (row >= 0 && row < static_cast<int>(speakers.size()) && onContext) {
-            const auto key = speakers[static_cast<std::size_t>(row)].key;
-            onContext(key, event->globalPos());
-            event->accept();
-        } else event->ignore();
+        if (rect().contains(event->pos()) && onContext) {
+            for (int i = 0; i < static_cast<int>(speakers.size()); ++i) {
+                if (!cellRect(i).contains(event->pos())) continue;
+                const auto key = speakers[static_cast<std::size_t>(i)].key;
+                onContext(key, event->globalPos());
+                event->accept();
+                return;
+            }
+        }
+        event->ignore();
     }
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
@@ -54,10 +97,13 @@ protected:
         const qreal scale = settings.scale / 100.0;
         for (int i = 0; i < static_cast<int>(speakers.size()); ++i) {
             const auto& speaker = speakers[static_cast<std::size_t>(i)];
+            const auto cell = cellRect(i);
+            p.save();
+            p.setClipRect(cell, Qt::IntersectClip);
             const bool whisper = speaker.kind != SpeechKind::Normal;
             const QColor color(whisper && settings.showWhisper ? "#b98aff" : "#44c985");
             p.save();
-            p.translate(13 * scale, i * h + h / 2.0);
+            p.translate(cell.left() + 13 * scale, cell.top() + h / 2.0);
             p.scale(scale, scale);
             p.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap));
             p.setBrush(color);
@@ -77,24 +123,25 @@ protected:
             badgeFont.setBold(true);
             const int badgeWidth = badge.isEmpty() ? 0 : QFontMetrics(badgeFont).horizontalAdvance(badge) + qRound(18 * scale);
             const int left = qRound(29 * scale);
-            const int textWidth = std::max(0, width() - left - badgeWidth - qRound(9 * scale));
+            const int textWidth = std::max(0, cell.width() - left - badgeWidth - qRound(9 * scale));
             p.setFont(font());
             p.setPen(text);
             const QString name = QString::fromUtf8(speaker.nickname.data(), static_cast<int>(speaker.nickname.size()));
             if (settings.allServers) {
                 const QString server = QString::fromUtf8(speaker.serverName.data(), static_cast<int>(speaker.serverName.size()));
-                p.drawText(QRect(left, i * h, textWidth, h * 3 / 5), Qt::AlignVCenter,
+                p.drawText(QRect(cell.left() + left, cell.top(), textWidth, h * 3 / 5), Qt::AlignVCenter,
                            QFontMetrics(font()).elidedText(name, Qt::ElideRight, textWidth));
                 p.setFont(badgeFont); p.setPen(muted);
-                p.drawText(QRect(left, i * h + h / 2, textWidth, h / 2), Qt::AlignVCenter,
+                p.drawText(QRect(cell.left() + left, cell.top() + h / 2, textWidth, h / 2), Qt::AlignVCenter,
                            QFontMetrics(badgeFont).elidedText(server, Qt::ElideRight, textWidth));
             } else {
-                p.drawText(QRect(left, i * h, textWidth, h), Qt::AlignVCenter,
+                p.drawText(QRect(cell.left() + left, cell.top(), textWidth, h), Qt::AlignVCenter,
                            QFontMetrics(font()).elidedText(name, Qt::ElideRight, textWidth));
             }
             p.setFont(badgeFont); p.setPen(color);
-            p.drawText(QRect(width() - badgeWidth, i * h, badgeWidth - qRound(8 * scale), h),
+            p.drawText(QRect(cell.right() + 1 - badgeWidth, cell.top(), badgeWidth - qRound(8 * scale), h),
                        Qt::AlignVCenter | Qt::AlignRight, badge);
+            p.restore();
         }
     }
 };
@@ -152,6 +199,20 @@ SpeakerWindow::SpeakerWindow() : QWidget(nullptr) {
     grip_ = new QSizeGrip(this);
     grip_->setFixedSize(12, 10);
     layout_->addWidget(grip_, 0, Qt::AlignRight);
+    canvas_->availableRows = [this] {
+        const int listHeight = embedded_ || !settings_.autoHeight
+            ? scroll_->viewport()->height() : automaticHeightLimit() - chromeHeight();
+        return std::max(1, listHeight / canvas_->rowHeight());
+    };
+    scroll_->viewport()->installEventFilter(this);
+    canvas_->onHeightChanged = [this] {
+        if (heightAdjustmentPending_) return;
+        heightAdjustmentPending_ = true;
+        QTimer::singleShot(0, this, [this] {
+            heightAdjustmentPending_ = false;
+            adjustListHeight();
+        });
+    };
     resize(290, 100);
     applySettings(settings_);
 }
@@ -222,15 +283,18 @@ int SpeakerWindow::chromeHeight() const {
     const auto margins = layout_->contentsMargins();
     return margins.top() + titleBar_->height() + (embedded_ ? 0 : grip_->height()) + margins.bottom();
 }
+int SpeakerWindow::automaticHeightLimit() const {
+    int cap = maximumHeight();
+    if (auto* screen = QGuiApplication::screenAt(frameGeometry().center()))
+        cap = std::min(cap, screen->availableGeometry().height() - 60);
+    return std::max(minimumHeight(), cap);
+}
 void SpeakerWindow::adjustListHeight() {
     scroll_->setVisible(embedded_ || !canvas_->speakers.empty());
     layout_->activate();
     if (embedded_ || !settings_.autoHeight) return;
-    int cap = maximumHeight();
-    if (auto* screen = QGuiApplication::screenAt(frameGeometry().center()))
-        cap = std::min(cap, screen->availableGeometry().height() - 60);
     const int desired = chromeHeight() + canvas_->height();
-    resize(width(), std::clamp(desired, minimumHeight(), std::max(minimumHeight(), cap)));
+    resize(width(), std::clamp(desired, minimumHeight(), automaticHeightLimit()));
 }
 void SpeakerWindow::showPassive() { ensureOnScreen(); show(); }
 void SpeakerWindow::ensureOnScreen() {
@@ -263,6 +327,10 @@ void SpeakerWindow::closeEvent(QCloseEvent* event) {
     if (onHidden) onHidden();
 }
 bool SpeakerWindow::eventFilter(QObject* watched, QEvent* event) {
+    // A height-only dock resize may leave the canvas size unchanged. Refresh
+    // on viewport changes too so vertical filling follows the dock's height.
+    if (watched == scroll_->viewport() && event->type() == QEvent::Resize)
+        canvas_->refresh();
     if (!embedded_ && (watched == titleBar_ || watched == title_)) {
         if (event->type() == QEvent::MouseButtonPress) {
             auto* mouse = static_cast<QMouseEvent*>(event);

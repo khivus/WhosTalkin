@@ -9,6 +9,7 @@ class QSettings;
 namespace wt {
 struct Settings {
     static constexpr int maxRemovalDelay = 5000;
+    static constexpr int maxColumns = 8;
     bool alwaysOnTop = true;
     bool startVisible = true;
     bool hideTaskbar = true;
@@ -19,6 +20,7 @@ struct Settings {
     bool showOwn = true;
     bool allServers = false;
     bool alphabetical = false;
+    bool stackColumns = false;
     bool includeOnly = false;
     bool integrate = false;
     int dockArea = 2; // Qt::RightDockWidgetArea; persist only this plugin's dock area.
@@ -27,6 +29,7 @@ struct Settings {
     int scale = 100;
     int maxHeight = 420;
     int maxSpeakers = 12;
+    int columns = 0; // 0 = automatic width-based layout; 1..8 = fixed columns.
     int removalDelay = 0;
     void normalize();
 };
@@ -40,6 +43,8 @@ public:
     QSize geometrySize() const;
     int geometryScale() const;
     void saveGeometry(const QByteArray& geometry, const QSize& size, int scale);
+    QSize dockSize() const;
+    void saveDockSize(const QSize& size);
     bool sync();
 private:
     std::unique_ptr<QSettings> file_;
